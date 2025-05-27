@@ -32,7 +32,8 @@ def supabase_webhook():
     data = request.get_json()
     print('Recebido webhook:', data)
 
-    comando = data.get('new', {}).get('comando', False)
+    # Corrigido: pega de 'record', não de 'new'
+    comando = data.get('record', {}).get('comando', False)
 
     mensagem = 'VERDADE' if comando else 'FALSO'
     
