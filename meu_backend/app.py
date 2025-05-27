@@ -3,7 +3,6 @@ import paho.mqtt.client as mqtt
 import ssl
 import os
 import threading
-import time
 
 app = Flask(__name__)
 
@@ -15,12 +14,12 @@ MQTT_USER = 'esp32_user'
 MQTT_PASS = 'Esp32_pass'
 
 # Cliente MQTT
-mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)  # para evitar deprecated warning
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)  # Evita deprecation warning
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
 
-# Mantém loop em background
+# Mantém loop MQTT rodando em background
 def mqtt_loop():
     mqtt_client.loop_forever()
 
@@ -35,14 +34,12 @@ def supabase_webhook():
 
     comando = data.get('new', {}).get('comando', False)
 
-    if comando:
-        result = mqtt_client.publish(MQTT_TOPIC, 'liberar')
-        print(f'Publicado no MQTT: {MQTT_TOPIC} -> liberar | Resultado: {result}')
-        return jsonify({'status': 'Publicado'}), 200
-    else:
-        result = mqtt_client.publish(MQTT_TOPIC, 'bloquear')
-        print(f'Publicado no MQTT: {MQTT_TOPIC} -> bloquear | Resultado: {result}')
-        return jsonify({'status': 'Publicado sem comando'}), 200
+    mensagem = 'VERDADE' if comando else 'FALSO'
+    
+    result = mqtt_client.publish(MQTT_TOPIC, mensagem)
+    print(f'Publicado no MQTT: {MQTT_TOPIC} -> {mensagem} | Resultado: {result}')
+    
+    return jsonify({'status': f'Publicado {mensagem}'}), 200
 
 @app.route('/')
 def home():
