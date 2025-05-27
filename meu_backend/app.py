@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify
 import paho.mqtt.client as mqtt
 import ssl
@@ -16,22 +15,27 @@ MQTT_PASS = 'Esp32_pass'
 # Cliente MQTT
 mqtt_client = mqtt.Client()
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
+mqtt_client.tls_set(cert_reqs=ssl.CERT_NONE)  # ACEITA QUALQUER CERTIFICADO
+
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
+mqtt_client.loop_start()  # Mantém a conexão viva
 
 @app.route('/supabase-webhook', methods=['POST'])
 def supabase_webhook():
     data = request.get_json()
     print('Recebido webhook:', data)
 
-    comando = data.get('new', {}).get('comando', False)
+    # Correção aqui! A chave correta é 'record'
+    comando = data.get('record', {}).get('comando', False)
     
     if comando:
         mqtt_client.publish(MQTT_TOPIC, 'liberar')
         print(f'Publicado no MQTT: {MQTT_TOPIC} -> liberar')
-        return jsonify({'status': 'Publicado'}), 200
     else:
-        return jsonify({'status': 'Sem comando'}), 200
+        mqtt_client.publish(MQTT_TOPIC, 'bloquear')
+        print(f'Publicado no MQTT: {MQTT_TOPIC} -> bloquear')
+
+    return jsonify({'status': 'Publicado'}), 200
 
 @app.route('/')
 def home():
