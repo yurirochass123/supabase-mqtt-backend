@@ -3,6 +3,8 @@ import paho.mqtt.client as mqtt
 import ssl
 import os
 import threading
+import time
+import json
 
 app = Flask(__name__)
 
@@ -13,13 +15,11 @@ MQTT_TOPIC = 'supabase/controle'
 MQTT_USER = 'esp32_user'
 MQTT_PASS = 'Esp32_pass'
 
-# Cliente MQTT
-mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)  # Evita deprecation warning
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
 
-# Mantém loop MQTT rodando em background
 def mqtt_loop():
     mqtt_client.loop_forever()
 
@@ -32,14 +32,23 @@ def supabase_webhook():
     data = request.get_json()
     print('Recebido webhook:', data)
 
-    comando = data.get('record', {}).get('comando', False)
+    comando_data = data.get('new', {})
+    comando = comando_data.get('comando', False)
+    maquina = comando_data.get('maquina', 'M1')
+    tempo = comando_data.get('tempo', 0)
 
-    mensagem = 'VERDADE' if comando else 'FALSO'
-    
-    result = mqtt_client.publish(MQTT_TOPIC, mensagem)
-    print(f'Publicado no MQTT: {MQTT_TOPIC} -> {mensagem} | Resultado: {result}')
-    
-    return jsonify({'status': f'Publicado {mensagem}'}), 200
+    if comando:
+        payload = {
+            "maquina": maquina,
+            "tempo": tempo,
+            "comando": True
+        }
+        result = mqtt_client.publish(MQTT_TOPIC, json.dumps(payload))
+        print(f'Publicado no MQTT: {payload}')
+        return jsonify({'status': 'Publicado'}), 200
+    else:
+        print('Comando falso, nada enviado.')
+        return jsonify({'status': 'Comando falso'}), 200
 
 @app.route('/')
 def home():
