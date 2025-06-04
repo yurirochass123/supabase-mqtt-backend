@@ -27,8 +27,8 @@ mqtt_thread = threading.Thread(target=mqtt_loop)
 mqtt_thread.daemon = True
 mqtt_thread.start()
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
+@app.route('/supabase-webhook', methods=['POST'])
+def supabase_webhook():
     data = request.get_json()
     print('Webhook recebido:', data)
 
@@ -41,7 +41,7 @@ def webhook():
     
     print(f'Publicado no MQTT: {mensagem} -> Resultado: {result}')
     return jsonify({'status': 'Publicado'}), 200
-
+    
 @app.route('/')
 def home():
     return "Supabase MQTT Bridge rodando!", 200
