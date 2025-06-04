@@ -32,15 +32,17 @@ def supabase_webhook():
     data = request.get_json()
     print('Webhook recebido:', data)
 
-    maquina = data.get('maquina')
-    comando = data.get('comando')
-    tempo = data.get('tempo')
+    record = data.get('record', {})
+    maquina = record.get('maquina')
+    comando = record.get('comando')
+    tempo = record.get('tempo')
 
     mensagem = f"{maquina}|{comando}|{tempo}"
     result = mqtt_client.publish(MQTT_TOPIC, mensagem)
     
     print(f'Publicado no MQTT: {mensagem} -> Resultado: {result}')
     return jsonify({'status': 'Publicado'}), 200
+
     
 @app.route('/')
 def home():
