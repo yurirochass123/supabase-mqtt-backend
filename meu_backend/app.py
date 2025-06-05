@@ -14,12 +14,12 @@ MQTT_USER = 'esp32_user'
 MQTT_PASS = 'Esp32_pass'
 
 # Cliente MQTT
-mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+mqtt_client = mqtt.Client()
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
+mqtt_client.tls_set()  # usa certificado CA do sistema
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
 
-# Mantém loop em background
+# Mantém loop em background para processar callbacks MQTT
 def mqtt_loop():
     mqtt_client.loop_forever()
 
@@ -32,18 +32,20 @@ def supabase_webhook():
     data = request.get_json()
     print('Webhook recebido:', data)
 
-    record = data.get('record', {})
-    maquina = record.get('maquina')
-    comando = record.get('comando')
-    tempo = record.get('tempo')
+    record = data.get('record')
+    if not isinstance(record, dict):
+        record = {}
+
+    maquina = record.get('maquina', "None")
+    comando = record.get('comando', "None")
+    tempo = record.get('tempo', "None")
 
     mensagem = f"{maquina}|{comando}|{tempo}"
     result = mqtt_client.publish(MQTT_TOPIC, mensagem)
-    
+
     print(f'Publicado no MQTT: {mensagem} -> Resultado: {result}')
     return jsonify({'status': 'Publicado'}), 200
 
-    
 @app.route('/')
 def home():
     return "Supabase MQTT Bridge rodando!", 200
