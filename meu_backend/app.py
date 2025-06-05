@@ -32,13 +32,9 @@ def supabase_webhook():
     data = request.get_json()
     print('Webhook recebido:', data)
 
-    record = data.get('record')
-    if not isinstance(record, dict):
-        record = {}
-
-    maquina = record.get('maquina', "None")
-    comando = record.get('comando', "None")
-    tempo = record.get('tempo', "None")
+    maquina = data.get('maquina', "None")
+    comando = data.get('comando', "None")
+    tempo = data.get('tempo', "None")
 
     mensagem = f"{maquina}|{comando}|{tempo}"
     result = mqtt_client.publish(MQTT_TOPIC, mensagem)
