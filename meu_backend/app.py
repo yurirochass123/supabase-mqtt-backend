@@ -1,103 +1,92 @@
+import ssl
+import json
+import logging
+import time
 from flask import Flask, request, jsonify
 import paho.mqtt.client as mqtt
-import ssl
-import os
-import threading
-import time
-import logging
 
-# ===== CONFIG LOGS =====
+# Configuração do logging estruturado
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(asctime)s] %(levelname)s: %(message)s'
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
 )
-logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configuração MQTT HiveMQ
-MQTT_BROKER = '0ea2697a3d79439dbfd101a6f7896593.s1.eu.hivemq.cloud'
-MQTT_PORT = 8883
-MQTT_TOPIC = 'supabase/controle'
-MQTT_USER = 'esp32_user'
-MQTT_PASS = 'Esp32_pass'
+# Controle de duplicidade de eventos
+ULTIMOS_EVENTOS = {}
+TEMPO_EXPIRACAO_EVENTO = 10  # segundos
 
-# Cliente MQTT
+# Configurações MQTT
+MQTT_BROKER = "0ea2697a3d79439dbfd101a6f7896593.s1.eu.hivemq.cloud"
+MQTT_PORT = 8883
+MQTT_USER = "esp32_user"
+MQTT_PASS = "Esp32_pass"
+MQTT_TOPIC = "supabase/controle"
+
+# Cliente MQTT com TLS
 mqtt_client = mqtt.Client()
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-mqtt_client.tls_set()  # usa certificado CA do sistema
+mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
+mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
-# ===== CALLBACKS =====
-def on_connect(client, userdata, flags, rc):
-    if rc == 0:
-        logger.info("✅ Conectado ao broker MQTT!")
-    else:
-        logger.error(f"❌ Falha na conexão MQTT. Código: {rc}")
+# Middleware mTLS
+def validar_certificado():
+    cert = request.environ.get("SSL_CLIENT_CERT")
+    if not cert:
+        logging.error("Conexão rejeitada: certificado cliente ausente.")
+        return False
+    logging.info("Certificado cliente validado com sucesso.")
+    return True
 
-def on_disconnect(client, userdata, rc):
-    logger.warning(f"⚠ Desconectado do broker MQTT (rc={rc}). Tentando reconectar...")
-    reconnect_mqtt()
+@app.route("/supabase-webhook", methods=["POST"])
+def receber_webhook():
+    if not validar_certificado():
+        return jsonify({"erro": "Certificado inválido"}), 403
 
-mqtt_client.on_connect = on_connect
-mqtt_client.on_disconnect = on_disconnect
-
-# ===== RECONEXÃO =====
-def reconnect_mqtt():
-    while True:
-        try:
-            mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
-            logger.info("🔄 Reconexão ao broker MQTT bem-sucedida!")
-            break
-        except Exception as e:
-            logger.error(f"Erro ao reconectar: {e}")
-            time.sleep(5)
-
-# ===== LOOP EM THREAD =====
-def mqtt_loop():
-    while True:
-        try:
-            mqtt_client.loop_forever()
-        except Exception as e:
-            logger.error(f"Erro no loop MQTT: {e}")
-            reconnect_mqtt()
-
-# Conecta inicialmente
-reconnect_mqtt()
-
-mqtt_thread = threading.Thread(target=mqtt_loop)
-mqtt_thread.daemon = True
-mqtt_thread.start()
-
-@app.route('/supabase-webhook', methods=['POST'])
-def supabase_webhook():
     try:
-        data = request.get_json(force=True)
-    except Exception as e:
-        logger.error(f"Erro ao ler JSON: {e}")
-        return jsonify({'error': 'JSON inválido'}), 400
+        dados = request.get_json(force=True)
+    except Exception:
+        logging.error("Payload inválido recebido.")
+        return jsonify({"erro": "JSON inválido"}), 400
 
-    if not isinstance(data, dict):
-        logger.warning(f"Formato incorreto recebido: {data}")
-        return jsonify({'error': 'Payload inválido'}), 400
+    logging.info(f"Recebido webhook: {dados}")
 
-    maquina = str(data.get('maquina', "None"))
-    comando = str(data.get('comando', "None"))
-    tempo = str(data.get('tempo', "None"))
+    # Validação básica
+    if not all(k in dados for k in ("maquina", "comando", "tempo")):
+        return jsonify({"erro": "Campos ausentes"}), 400
 
-    mensagem = f"{maquina}|{comando}|{tempo}"
-    
+    maquina = dados["maquina"]
+    comando = dados["comando"]
+    tempo = dados["tempo"]
+
+    # Evita processar evento duplicado
+    chave_evento = f"{maquina}-{comando}-{tempo}"
+    agora = time.time()
+
+    if chave_evento in ULTIMOS_EVENTOS:
+        if agora - ULTIMOS_EVENTOS[chave_evento] < TEMPO_EXPIRACAO_EVENTO:
+            logging.warning(f"Evento duplicado ignorado: {chave_evento}")
+            return jsonify({"status": "ignorado"}), 200
+
+    ULTIMOS_EVENTOS[chave_evento] = agora
+
+    # Publica no MQTT
     try:
-        result = mqtt_client.publish(MQTT_TOPIC, mensagem)
-        logger.info(f"📤 Publicado no MQTT: {mensagem} -> Resultado: {result.rc}")
-        return jsonify({'status': 'Publicado'}), 200
+        payload_mqtt = f"{maquina}|{int(comando)}|{tempo}"
+        mqtt_client.publish(MQTT_TOPIC, payload_mqtt)
+        logging.info(f"Comando enviado via MQTT: {payload_mqtt}")
     except Exception as e:
-        logger.error(f"Erro ao publicar no MQTT: {e}")
-        return jsonify({'error': 'Falha ao publicar no MQTT'}), 500
+        logging.error(f"Falha ao publicar no MQTT: {e}")
+        return jsonify({"erro": "Falha MQTT"}), 500
 
-@app.route('/')
-def home():
-    return "Supabase MQTT Bridge rodando!", 200
+    return jsonify({"status": "ok"}), 200
 
-if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(certfile="server.crt", keyfile="server.key")
+    context.load_verify_locations(cafile="ca.crt")
+    context.verify_mode = ssl.CERT_REQUIRED
+
+    app.run(host="0.0.0.0", port=443, ssl_context=context)
