@@ -18,7 +18,7 @@ MQTT_USER = 'esp32_user'
 MQTT_PASS = 'Esp32_pass'
 
 # Cria cliente MQTT com callback_api_version=5 para evitar warning
-mqtt_client = mqtt.Client(callback_api_version=5)
+mqtt_client = mqtt.Client(callback_api_version=2)
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 mqtt_client.tls_set()
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
