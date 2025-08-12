@@ -20,10 +20,11 @@ def supabase_webhook():
         return jsonify({'error': 'JSON inválido ou vazio'}), 400
 
     print(f'Webhook recebido: {data}')
-    record = data.get('record')
-    if not isinstance(record, dict):
-        print('Campo "record" inválido ou ausente')
-        return jsonify({'error': 'Campo "record" inválido ou ausente'}), 400
+
+    if isinstance(data.get('record'), dict):
+        record = data['record']
+    else:
+        record = data  # aceita dados direto no JSON raiz
 
     maquina = record.get('maquina', 'None')
     comando = record.get('comando', 'None')
