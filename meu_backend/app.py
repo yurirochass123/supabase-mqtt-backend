@@ -1,3 +1,4 @@
+import logging
 from flask import Flask, request, jsonify
 import paho.mqtt.client as mqtt
 import ssl
@@ -6,20 +7,20 @@ import threading
 
 app = Flask(__name__)
 
-# Configuração MQTT HiveMQ
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 MQTT_BROKER = 'cc94fda87fad405fa0f1137675e147dd.s1.eu.hivemq.cloud'
 MQTT_PORT = 8883
 MQTT_TOPIC = 'supabase/controle'
 MQTT_USER = 'esp32_user'
 MQTT_PASS = 'Esp32_pass'
 
-# Cliente MQTT
 mqtt_client = mqtt.Client()
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-mqtt_client.tls_set()  # usa certificado CA do sistema
+mqtt_client.tls_set()
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
 
-# Mantém loop em background para processar callbacks MQTT
 def mqtt_loop():
     mqtt_client.loop_forever()
 
@@ -29,12 +30,16 @@ mqtt_thread.start()
 
 @app.route('/supabase-webhook', methods=['POST'])
 def supabase_webhook():
-    data = request.get_json()
-    print('Webhook recebido:', data)
+    data = request.get_json(silent=True)
+    if not data:
+        logger.error('JSON inválido ou vazio no webhook')
+        return jsonify({'error': 'JSON inválido ou vazio'}), 400
 
+    logger.info(f'Webhook recebido: {data}')
     record = data.get('record')
     if not isinstance(record, dict):
-        record = {}
+        logger.error('Campo "record" inválido ou ausente')
+        return jsonify({'error': 'Campo "record" inválido ou ausente'}), 400
 
     maquina = record.get('maquina', "None")
     comando = record.get('comando', "None")
@@ -42,8 +47,11 @@ def supabase_webhook():
 
     mensagem = f"{maquina}|{comando}|{tempo}"
     result = mqtt_client.publish(MQTT_TOPIC, mensagem)
+    if result.rc != mqtt.MQTT_ERR_SUCCESS:
+        logger.error(f'Erro ao publicar MQTT: {result}')
+        return jsonify({'error': 'Falha ao publicar MQTT'}), 500
 
-    print(f'Publicado no MQTT: {mensagem} -> Resultado: {result}')
+    logger.info(f'Publicado no MQTT: {mensagem}')
     return jsonify({'status': 'Publicado'}), 200
 
 @app.route('/')
